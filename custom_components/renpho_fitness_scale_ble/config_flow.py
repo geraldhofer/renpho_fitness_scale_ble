@@ -34,7 +34,9 @@ from renpho_escs20m import (
     QN_MANUFACTURER_ID,
     detect_protocol,
     is_qn_frame,
+    is_x55aa_frame,
 )
+from renpho_escs20m.detection import X55AA_COMPANY_IDS
 
 from .const import (
     CONF_ATHLETE,
@@ -63,6 +65,7 @@ from .const import (
     MAX_HISTORY_SIZE,
     PROTOCOL_AABB,
     PROTOCOL_QN,
+    PROTOCOL_X55AA,
     get_sensor_unique_id,
 )
 
@@ -135,6 +138,7 @@ _KNOWN_NON_SCALE_SERVICE_UUIDS: frozenset[str] = frozenset(
 _PROTOCOL_CHOICES: dict[str, str] = {
     PROTOCOL_QN: "QN — connectable scale (most Renpho models; recommended first try)",
     PROTOCOL_AABB: "Broadcast — non-connectable scale (weight broadcast only)",
+    PROTOCOL_X55AA: "0x55aa — connectable scale (various Renpho and LeFu models incl. R-A012, R-A016, ES-26BB-B, ESCS20MB1)",
 }
 
 
@@ -156,13 +160,17 @@ def _manual_picker_tier(info: BluetoothServiceInfo) -> int | None:
     """Classify a discovered device for the manual picker.
 
     Returns the admission tier, or None to hide the device:
-      1 — classified protocol (AABB frame, known QN identifier, or matching
-          name/OUI)
+      1 — classified protocol (AABB frame, known QN identifier, 0x55aa frame
+          with a supported model identifier, or matching name/OUI)
       2 — valid QN frame with an unrecognized model identifier (unknown
           QN-platform scales are never hidden)
       3 — any other device not categorically a non-scale (denylists), so
           users can try unknown scales; they configure through the explicit
-          protocol chooser
+          protocol chooser. A 0x55aa frame with an unsupported model
+          identifier stays here deliberately — it is labelled as recognized
+          but unsupported rather than promoted to tier 2, since the library
+          can't drive it and connecting would only steal the scale's link
+          from the Renpho app.
     """
     if _detect_protocol(info) is not None:
         return 1
@@ -176,6 +184,20 @@ def _manual_picker_tier(info: BluetoothServiceInfo) -> int | None:
     return 3
 
 
+def _is_unsupported_x55aa(info: BluetoothServiceInfo) -> bool:
+    """True for a 0x55aa-family advertisement the library won't classify.
+
+    Frame shape matches, but `detect_protocol` returned None — i.e. the
+    advertised model identifier isn't a supported one. Callers must check
+    the classified case first; this says nothing about supported devices.
+    """
+    return any(
+        (payload := info.manufacturer_data.get(company)) is not None
+        and is_x55aa_frame(payload, info.address)
+        for company in X55AA_COMPANY_IDS
+    )
+
+
 def _picker_label(title_text: str, info: BluetoothServiceInfo) -> str:
     """Annotate a manual-picker entry with what we know about the device."""
     protocol = _detect_protocol(info)
@@ -183,9 +205,19 @@ def _picker_label(title_text: str, info: BluetoothServiceInfo) -> str:
         return f"{title_text} [QN scale]"
     if protocol == PROTOCOL_AABB:
         return f"{title_text} [broadcast scale]"
+    if protocol == PROTOCOL_X55AA:
+        return f"{title_text} [0x55aa scale]"
     payload = info.manufacturer_data.get(QN_MANUFACTURER_ID)
     if payload is not None and is_qn_frame(payload, info.address):
         return f"{title_text} [QN device — unknown model]"
+    if _is_unsupported_x55aa(info):
+        # The 0x55aa frame is conclusive family evidence, so the library
+        # refused to classify this one: its model identifier isn't one of the
+        # supported (basic-flavor) ones — the extended flavor, most likely.
+        # Say so rather than leaving it as a generic unknown, but leave it in
+        # the bottom tier: connecting would hold the scale's BLE link away
+        # from the Renpho app without ever producing a reading.
+        return f"{title_text} [Renpho 0x55aa scale — this model not supported yet]"
     return f"{title_text} [unknown device]"
 
 

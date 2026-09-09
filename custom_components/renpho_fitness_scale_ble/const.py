@@ -26,9 +26,15 @@ CONF_PROTOCOL = "protocol"
 # QN-series: connectable GATT scale with body composition (the default and
 # original variant). AABB: the broadcast-only ES-CS20M subvariant that emits
 # weight in its BLE advertisements — non-connectable, weight-only (BMI at most).
+# X55AA: the LeFu-hardware variant (basic flavor) — a connectable GATT scale on
+# an entirely separate wire protocol, reporting weight plus a real impedance
+# reading but computing no body composition on-device.
 # Entries created before this key existed are treated as QN.
+# Values must match `renpho_escs20m.ScaleProtocol` members: the coordinator
+# validates the persisted string against that enum before constructing a client.
 PROTOCOL_QN = "qn"
 PROTOCOL_AABB = "aabb"
+PROTOCOL_X55AA = "x55aa"
 
 # --- User profile dict keys ---
 CONF_USER_ID = "user_id"

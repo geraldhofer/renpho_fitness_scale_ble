@@ -36,3 +36,4 @@ home-assistant.log.*
 docs/
 CLAUDE.md
 pytest.ini
+.claude/

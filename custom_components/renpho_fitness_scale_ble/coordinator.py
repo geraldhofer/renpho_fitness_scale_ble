@@ -69,6 +69,7 @@ from renpho_escs20m import (
     ProfileResolver,
     RESISTANCE_1_KEY,
     RESISTANCE_2_KEY,
+    Renpho55AAScale,
     RenphoAABBScale,
     RenphoQNScale,
     RenphoScale,
@@ -105,6 +106,7 @@ from .const import (
     PASSIVE_SCAN_ISSUE_ID,
     PROTOCOL_AABB,
     PROTOCOL_QN,
+    PROTOCOL_X55AA,
     SYNTHETIC_RESISTANCE,
     parse_notify_service,
 )
@@ -981,8 +983,9 @@ class ScaleDataUpdateCoordinator:
             keep_history_forever: When True, the router never prunes history
                 (the retention/size limits above are ignored).
             protocol: BLE protocol the scale speaks (`PROTOCOL_QN` for the
-                connectable GATT variant, `PROTOCOL_AABB` for the broadcast-only
-                weight-only variant). Selects the library scale class.
+                connectable QN GATT variant, `PROTOCOL_AABB` for the broadcast-only
+                weight-only variant, `PROTOCOL_X55AA` for the connectable
+                LeFu-hardware variant). Selects the library scale class.
         """
         self.hass = hass
         self.address = address
@@ -1012,7 +1015,7 @@ class ScaleDataUpdateCoordinator:
         self._diagnostic_listeners: list[Callable[[], None]] = []
 
         # BLE client; created on demand by `async_start`. Concrete type depends
-        # on `self._protocol` (RenphoQNScale or RenphoAABBScale).
+        # on `self._protocol` (RenphoQNScale, RenphoAABBScale or Renpho55AAScale).
         self._scale: RenphoScale | None = None
         self._enable_library_logging = enable_library_logging
         # Unsubscribe handle for the HA `core_config_updated` listener that
@@ -1627,10 +1630,11 @@ class ScaleDataUpdateCoordinator:
             )
             self._protocol = PROTOCOL_QN
 
-        # Not collapsed to a single `SCALE_CLASSES[...]` construction: the two
+        # Not collapsed to a single `SCALE_CLASSES[...]` construction: the three
         # constructor surfaces aren't identical (QN takes `profile`,
         # `clear_stored_measurements`, and an explicit `cooldown_seconds`;
-        # AABB takes none of those and is left at the library's own
+        # 0x55aa takes `clear_stored_measurements` but no `profile`; AABB takes
+        # none of those, and both non-QN variants are left at the library's own
         # `cooldown_seconds` default). Passing one class's kwargs to the
         # other has broken a scale before — keep the branch.
         if self._protocol == PROTOCOL_AABB:
@@ -1647,6 +1651,15 @@ class ScaleDataUpdateCoordinator:
                 notification_callback=self._on_scale_data,
                 display_unit=self._display_unit,
                 bleak_scanner_backend=scanner,
+                logger=self._library_logger(),
+            )
+        elif self._protocol == PROTOCOL_X55AA:
+            self._scale = Renpho55AAScale(
+                address=self.address,
+                notification_callback=self._on_scale_data,
+                display_unit=self._display_unit,
+                bleak_scanner_backend=scanner,
+                clear_stored_measurements=True,
                 logger=self._library_logger(),
             )
         else:

@@ -68,19 +68,26 @@ Confirmed-working:
 
 Experimental:
 
-| Marketed model | HVIN | FCC ID            | Protocol               |
-|----------------|------|-------------------|------------------------|
-| Arboleaf CS20M | -    | `2ANDX-CS20M`     | QN-series (FFE0 GATT)  |
-| ES-CS20M       | -    | `2APXUES-CS20M`   | `0xaabb` (broadcast)   |
+| Marketed model | HVIN        | FCC ID            | Protocol               |
+|----------------|-------------|-------------------|------------------------|
+| Arboleaf CS20M | -           | `2ANDX-CS20M`     | QN-series (FFE0 GATT)  |
+| ES-CS20M       | -           | `2APXUES-CS20M`   | `0xaabb` (broadcast)   |
+| ES-CS20M       | `ESCS20MB1` | `2A26P-ESCS20MB1` | `0x55aa` (basic)       |
+| ES-26BB-B      | `ES26BBB`   | -                 | `0x55aa` (basic)       |
+| R-A012         | -           | `2A26P-RA012N`    | `0x55aa` (basic)       |
+| R-A016         | -           | `2A26P-RA016`     | `0x55aa` (basic)       |
 
 - **Arboleaf CS20M** — QN-series hardware ships the same wire protocol on two GATT service layouts, and the integration handles both: the FFF0 layout used by the Renpho models above, and the FFE0 layout seen on some other QN scales. Full feature set.
 - **ES-CS20M (FCC ID `2APXUES-CS20M`)** — a **non-connectable** subvariant: it broadcasts weight in its BLE advertisements rather than connecting over GATT, using a different (`0xaabb`) protocol. This scale transmits no bioimpedance, so its body composition calculations do not use a real impedance measurement. Rather, it's an estimate based on just weight, height, age and sex (and athlete mode). The estimate is characterized, not a guess: the body-fat formulas are only weakly sensitive to impedance (worst case about ±0.5 percentage points across the plausible range), and it closely reproduces what the official Renpho app shows for this scale.
+- **`0x55aa` models (ES-CS20MB1, ES-26BB-B, R-A012, R-A016)** — Renpho also ships scales which speak an entirely separate wire protocol with nothing in common with the QN models above. These connect over GATT and report weight and impedance. The scale itself computes nothing, so all body-composition values are derived by the integration from the impedance it sends. Only the basic flavor of this protocol is currently supported — see the known-incompatible table below.
 
 Known-incompatible:
 
 | Marketed model | HVIN        | FCC ID              |
 |----------------|-------------|---------------------|
 | ES-CS20M       | `ESCS20MB2` | `2A26P-ESCS20MB2`   |
+
+- **ES-CS20M `ESCS20MB2`** — Uses the *extended* flavor of the `0x55aa` protocol, which the underlying library doesn't implement yet.
 
 **How to find your HVIN:** look at the regulatory sticker on the back of the scale. Most stickers have a dedicated `HVIN:` field alongside the FCC ID. Some stickers don't — in that case, look at the trailing portion of the **FCC ID** (`2A26P-<code>`), which encodes the same identifier. The trailing revision suffix (`A2`, `B2`, `N`, or absent altogether) is what matters. If your HVIN or FCC ID matches a confirmed-working entry above, this integration is likely to work; if it matches a known-incompatible entry it's unlikely to work; if it doesn't match an entry in either table, try it out and report back on the issue tracker. (Note: neither HVIN nor model number is readable over BLE, so the device code can't be shown on the Home Assistant device card — you have to read it off the sticker.)
 
@@ -119,7 +126,7 @@ Requires Home Assistant **2026.1.0+** and Python 3.13+ (matches Home Assistant's
 
 ### Adding a Device the Integration Doesn't Recognize
 
-Devices the integration can't positively identify are never auto-discovered — no discovery card is shown for them, and they can only be added through the manual picker described here. The manual "Add Integration" picker doesn't hide devices it can't identify — it labels them by how confident it is: `[QN device — unknown model]` for a scale-shaped advertisement whose exact model hasn't been seen before, or `[unknown device]` for anything else that isn't obviously non-scale hardware. Picking one of these asks you to choose a protocol yourself: **QN** covers most Renpho models and is worth trying first, while **Broadcast** is for non-connectable, weight-only scales that never accept a GATT connection. There's no guarantee an unrecognized device will work — some Renpho hardware revisions speak a protocol this integration doesn't understand at all — but many "unknown" scales turn out to be already-supported models the identifier registry just hasn't seen yet. If you try one, please [open an issue](#reporting-issues) with debug logs enabled: the log carries the scale's model identifier, and every report that gets added to the registry means the next person with that same scale sees it correctly classified from the start.
+Devices the integration can't positively identify are never auto-discovered — no discovery card is shown for them, and they can only be added through the manual picker described here. The manual "Add Integration" picker doesn't hide devices it can't identify — it labels them by how confident it is: `[QN device — unknown model]` for a scale-shaped advertisement whose exact model hasn't been seen before, `[Renpho 0x55aa scale — this model not supported yet]` for a `0x55aa` protocol scale on a flavor of that protocol the library can't drive, or `[unknown device]` for anything else that isn't obviously non-scale hardware. Picking one of these asks you to choose a protocol yourself: **QN** covers most Renpho models and is worth trying first, **Broadcast** is for non-connectable, weight-only scales that never accept a GATT connection, and **0x55aa** is the experimental `0x55aa` protocol variant (R-A012, R-A016, ES-26BB-B and similar). There's no guarantee an unrecognized device will work — some Renpho hardware revisions speak a protocol this integration doesn't understand at all — but many "unknown" scales turn out to be already-supported models the identifier registry just hasn't seen yet. If you try one, please [open an issue](#reporting-issues) with debug logs enabled: the log carries the scale's model identifier, and every report that gets added to the registry means the next person with that same scale sees it correctly classified from the start.
 
 ### User Profile Configuration Options
 
