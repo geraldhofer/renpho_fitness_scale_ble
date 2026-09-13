@@ -109,6 +109,7 @@ async def async_get_config_entry_diagnostics(
     scale = coordinator._scale
     diag["coordinator"] = {
         "device_name": coordinator.device_name,
+        "protocol": coordinator._protocol,
         "display_unit": coordinator.get_display_unit().name,
         "user_count": len(coordinator.get_user_profiles()),
         "user_ids": [p.get("user_id", "") for p in coordinator.get_user_profiles()],

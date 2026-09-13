@@ -19,7 +19,7 @@
       },
       "choose_protocol": {
         "title": "Choose scale protocol",
-        "description": "This device ({name}) wasn't recognized as a known Renpho scale, so its protocol couldn't be detected automatically. Pick the protocol to try — QN (connectable) works for most Renpho scales; choose Broadcast only for weight-broadcast-only models; 0x55aa is an experimental variant used by some LeFu-built Renpho scales (R-A012, R-A016, ES-26BB-B and similar). If none of them works, please open an issue on GitHub with debug logs enabled so the device can be added to the library's classifier.",
+        "description": "This device ({name}) wasn't recognized as a known Renpho scale, so its protocol couldn't be detected automatically. Pick the protocol to try — QN (connectable) works for most Renpho scales; choose Broadcast only for weight-broadcast-only models; 0x55aa is an experimental variant used by some LeFu-built Renpho scales (R-A012, R-A016, ES-26BB-B, ES-CS20M `ESCS20MB1`/`ESCS20MB2` and similar). If none of them works, please open an issue on GitHub with debug logs enabled so the device can be added to the library's classifier.",
         "data": {
           "protocol": "Scale protocol"
         }

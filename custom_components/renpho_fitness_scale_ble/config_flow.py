@@ -138,7 +138,7 @@ _KNOWN_NON_SCALE_SERVICE_UUIDS: frozenset[str] = frozenset(
 _PROTOCOL_CHOICES: dict[str, str] = {
     PROTOCOL_QN: "QN — connectable scale (most Renpho models; recommended first try)",
     PROTOCOL_AABB: "Broadcast — non-connectable scale (weight broadcast only)",
-    PROTOCOL_X55AA: "0x55aa — connectable scale (various Renpho and LeFu models incl. R-A012, R-A016, ES-26BB-B, ESCS20MB1)",
+    PROTOCOL_X55AA: "0x55aa — connectable scale (various Renpho and LeFu models incl. R-A012, R-A016, ES-26BB-B, ES-CS20M ESCS20MB1/ESCS20MB2)",
 }
 
 
@@ -166,11 +166,11 @@ def _manual_picker_tier(info: BluetoothServiceInfo) -> int | None:
           QN-platform scales are never hidden)
       3 — any other device not categorically a non-scale (denylists), so
           users can try unknown scales; they configure through the explicit
-          protocol chooser. A 0x55aa frame with an unsupported model
-          identifier stays here deliberately — it is labelled as recognized
-          but unsupported rather than promoted to tier 2, since the library
-          can't drive it and connecting would only steal the scale's link
-          from the Renpho app.
+          protocol chooser. A 0x55aa frame with a model identifier the
+          library has never seen stays here deliberately — it is labelled
+          as recognized but unsupported rather than promoted to tier 2,
+          since the library can't drive it and connecting would only steal
+          the scale's link from the Renpho app.
     """
     if _detect_protocol(info) is not None:
         return 1
@@ -212,8 +212,8 @@ def _picker_label(title_text: str, info: BluetoothServiceInfo) -> str:
         return f"{title_text} [QN device — unknown model]"
     if _is_unsupported_x55aa(info):
         # The 0x55aa frame is conclusive family evidence, so the library
-        # refused to classify this one: its model identifier isn't one of the
-        # supported (basic-flavor) ones — the extended flavor, most likely.
+        # refused to classify this one: its model identifier is neither a
+        # basic-flavor (0x0003) nor an extended-flavor (0x0030/0x0031) one.
         # Say so rather than leaving it as a generic unknown, but leave it in
         # the bottom tier: connecting would hold the scale's BLE link away
         # from the Renpho app without ever producing a reading.

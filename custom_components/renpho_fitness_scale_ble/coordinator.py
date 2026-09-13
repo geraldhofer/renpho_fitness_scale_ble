@@ -81,6 +81,9 @@ from renpho_escs20m import (
     VISCERAL_FAT_KEY,
     WEIGHT_KEY,
     WeightUnit,
+    X55AAProfile,
+    X55AAProfileResolver,
+    age_on,
 )
 from renpho_escs20m.detection import has_obfuscated_resistance, sends_metrics_panel
 
@@ -110,7 +113,6 @@ from .const import (
     SYNTHETIC_RESISTANCE,
     parse_notify_service,
 )
-
 
 SYSTEM = platform.system()
 IS_LINUX = SYSTEM == "Linux"
@@ -1396,8 +1398,16 @@ class ScaleDataUpdateCoordinator:
     # Profile / resolver
     # ------------------------------------------------------------------
 
-    def _build_profile_for_user(self, user_profile: dict) -> Profile | None:
-        """Construct a `renpho_escs20m.Profile` from a stored user profile dict.
+    def _build_profile_for_user(
+        self, user_profile: dict
+    ) -> Profile | X55AAProfile | None:
+        """Construct the library profile for a stored user profile dict.
+
+        Returns a QN ``Profile`` (age-carrying) or, on a 0x55aa entry, an
+        ``X55AAProfile`` (date-of-birth-carrying, plus the user's last
+        recorded weight for the profile frame's last-known-weight field).
+        Only the extended 0x55aa flavor consumes it; the library ignores it
+        on the basic flavor.
 
         Returns ``None`` if the user has body metrics disabled or is missing
         any required field. The caller treats ``None`` as "use weight-only
@@ -1414,15 +1424,11 @@ class ScaleDataUpdateCoordinator:
 
         try:
             birthdate = _date.fromisoformat(birthdate_str)
+            # Birthday-aware age (matches the Renpho app's UI age semantics).
+            # Raises on a future date — treated as an invalid field.
+            age = age_on(birthdate, _date.today())
         except (TypeError, ValueError):
             return None
-        # Birthday-aware age (matches the Renpho app's UI age semantics).
-        today = _date.today()
-        age = (
-            today.year
-            - birthdate.year
-            - ((today.month, today.day) < (birthdate.month, birthdate.day))
-        )
         # Case-insensitive: stored values are now "male"/"female", but
         # accept legacy capitalized values from any pre-0.1.0 dev profile.
         sex = Sex.Female if (sex_str or "").lower() == "female" else Sex.Male
@@ -1431,12 +1437,23 @@ class ScaleDataUpdateCoordinator:
             if user_profile.get(CONF_USE_ALTERNATIVE_ALGORITHM)
             else ALGORITHM_DEFAULT
         )
+        athlete = bool(user_profile.get(CONF_ATHLETE, False))
+        if self._protocol == PROTOCOL_X55AA:
+            last = self._router.get_user_last_measurement(user_profile[CONF_USER_ID])
+            return X55AAProfile(
+                sex=sex,
+                birthday=birthdate,
+                height_m=height_cm / 100.0,
+                algorithm=algorithm,
+                athlete=athlete,
+                last_weight_kg=last.weight_kg if last is not None else None,
+            )
         return Profile(
             sex=sex,
             age=age,
             height_m=height_cm / 100.0,
             algorithm=algorithm,
-            athlete=bool(user_profile.get(CONF_ATHLETE, False)),
+            athlete=athlete,
         )
 
     def _filter_candidates_by_location(self, candidate_ids: list[str]) -> list[str]:
@@ -1465,8 +1482,8 @@ class ScaleDataUpdateCoordinator:
             kept.append(user_id)
         return kept if kept else candidate_ids
 
-    async def _resolve_user(self, weight_kg: float) -> Profile | None:
-        """Async ProfileResolver passed to `RenphoESCS20MScale`.
+    async def _resolve_user(self, weight_kg: float) -> Profile | X55AAProfile | None:
+        """Async profile resolver passed to the QN and 0x55aa clients.
 
         Called once per measurement at first stable weight. Returns a Profile
         only when exactly one candidate is identified AND that user has body
@@ -1509,8 +1526,10 @@ class ScaleDataUpdateCoordinator:
     # Library mode selection + lifecycle
     # ------------------------------------------------------------------
 
-    def _select_library_mode_argument(self) -> Profile | ProfileResolver | None:
-        """Decide what to pass as ``profile=`` to ``RenphoESCS20MScale``.
+    def _select_library_mode_argument(
+        self,
+    ) -> Profile | X55AAProfile | ProfileResolver | X55AAProfileResolver | None:
+        """Decide what to pass as ``profile=`` to the QN or 0x55aa client.
 
         - 0 users (shouldn't happen — config flow enforces ≥1) -> None
           (weight-only, defensive)
@@ -1633,10 +1652,11 @@ class ScaleDataUpdateCoordinator:
         # Not collapsed to a single `SCALE_CLASSES[...]` construction: the three
         # constructor surfaces aren't identical (QN takes `profile`,
         # `clear_stored_measurements`, and an explicit `cooldown_seconds`;
-        # 0x55aa takes `clear_stored_measurements` but no `profile`; AABB takes
-        # none of those, and both non-QN variants are left at the library's own
-        # `cooldown_seconds` default). Passing one class's kwargs to the
-        # other has broken a scale before — keep the branch.
+        # 0x55aa takes `profile` (as an `X55AAProfile`, not a QN `Profile`)
+        # and `clear_stored_measurements`; AABB takes none of those, and both
+        # non-QN variants are left at the library's own `cooldown_seconds`
+        # default). Passing one class's kwargs to the other has broken a
+        # scale before — keep the branch.
         if self._protocol == PROTOCOL_AABB:
             # Broadcast-only variant: weight is read from BLE advertisements.
             # No GATT connection, so the profile/connect-retry knobs don't
@@ -1654,10 +1674,16 @@ class ScaleDataUpdateCoordinator:
                 logger=self._library_logger(),
             )
         elif self._protocol == PROTOCOL_X55AA:
+            # Same three-mode profile selection as QN, as an X55AAProfile.
+            # Only the extended flavor consumes it (the scale releases no
+            # final without a profile on it); the basic flavor ignores it.
+            # No `model_id`: the client reads the flavor from the
+            # advertisement before it connects.
             self._scale = Renpho55AAScale(
                 address=self.address,
                 notification_callback=self._on_scale_data,
                 display_unit=self._display_unit,
+                profile=self._select_library_mode_argument(),
                 bleak_scanner_backend=scanner,
                 clear_stored_measurements=True,
                 logger=self._library_logger(),
@@ -2284,15 +2310,9 @@ class ScaleDataUpdateCoordinator:
         from datetime import date as _date
 
         try:
-            birthdate = _date.fromisoformat(birthdate_str)
+            age = age_on(_date.fromisoformat(birthdate_str), _date.today())
         except (TypeError, ValueError):
             return
-        today = _date.today()
-        age = (
-            today.year
-            - birthdate.year
-            - ((today.month, today.day) < (birthdate.month, birthdate.day))
-        )
         # Case-insensitive: stored values are now "male"/"female", but
         # accept legacy capitalized values from any pre-0.1.0 dev profile.
         sex = Sex.Female if (sex_str or "").lower() == "female" else Sex.Male
@@ -2348,15 +2368,9 @@ class ScaleDataUpdateCoordinator:
         from datetime import date as _date
 
         try:
-            birthdate = _date.fromisoformat(birthdate_str)
+            age = age_on(_date.fromisoformat(birthdate_str), _date.today())
         except (TypeError, ValueError):
             return None
-        today = _date.today()
-        age = (
-            today.year
-            - birthdate.year
-            - ((today.month, today.day) < (birthdate.month, birthdate.day))
-        )
         # Case-insensitive: stored values are now "male"/"female", but
         # accept legacy capitalized values from any pre-0.1.0 dev profile.
         sex = Sex.Female if (sex_str or "").lower() == "female" else Sex.Male
