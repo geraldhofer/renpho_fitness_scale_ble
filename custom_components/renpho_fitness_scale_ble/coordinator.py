@@ -90,6 +90,7 @@ from renpho_escs20m.detection import has_obfuscated_resistance, sends_metrics_pa
 from .const import (
     ALGORITHM_ALTERNATIVE,
     ALGORITHM_DEFAULT,
+    CONF_ADVERTISED_MODEL_CODE,
     CONF_ATHLETE,
     CONF_BIRTHDATE,
     CONF_BODY_METRICS_ENABLED,
@@ -2528,7 +2529,41 @@ class ScaleDataUpdateCoordinator:
             CONF_ROUTER_STATE: self._router.to_dict(),
             CONF_PENDING_STATE: self._serialize_pending(),
         }
+        # Backfill for entries created before the key existed, or from an
+        # advertisement that carried no identifier. Rides on this write, so
+        # it costs no entry update of its own; once set it is never revised.
+        if CONF_ADVERTISED_MODEL_CODE not in entry.data:
+            model_code = self._advertised_model_code()
+            if model_code is not None:
+                new_data[CONF_ADVERTISED_MODEL_CODE] = model_code
         self.hass.config_entries.async_update_entry(entry, data=new_data)
+
+    def _advertised_model_code(self) -> str | None:
+        """The model identifier in HA's latest advertisement from the scale,
+        spelled as the config flow persists it ("0x099b"), or None.
+
+        Same reading as at entry creation (`advertised_model_code`), so the
+        persisted value means one thing however it got there.
+        """
+        from homeassistant.components import bluetooth
+
+        from .config_flow import advertised_model_code
+
+        try:
+            for connectable in (True, False):
+                info = bluetooth.async_last_service_info(
+                    self.hass, self.address, connectable=connectable
+                )
+                if info is None:
+                    continue
+                code = advertised_model_code(
+                    self._protocol, info.manufacturer_data, info.address
+                )
+                if code is not None:
+                    return f"0x{code:04x}"
+        except Exception:  # noqa: BLE001 - informational; never block a write
+            _LOGGER.debug("Could not read the advertised model code", exc_info=True)
+        return None
 
     def _serialize_pending(self) -> dict[str, dict[str, Any]]:
         """Convert `_pending_measurements` to a JSON-safe dict.

@@ -24,7 +24,9 @@ CONF_PROTOCOL = "protocol"
 # Model identifier the scale advertised when the entry was created, as the
 # library spells it ("0x099b"). Optional and informational only — it lets a
 # diagnostics dump name the model even when the scale is asleep; nothing
-# reads it to make a decision, and entries created before it simply lack it.
+# reads it to make a decision. Entries that lack it (created before it
+# existed, or from an advertisement without an identifier) are backfilled by
+# the coordinator the first time HA's advertisement history shows one.
 CONF_ADVERTISED_MODEL_CODE = "advertised_model_code"
 
 # --- Scale BLE protocols (renpho-escs20m) ---

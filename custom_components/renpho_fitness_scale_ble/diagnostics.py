@@ -151,6 +151,11 @@ def _last_service_info(
     return None
 
 
+def _enum_value(member: Any) -> Any:
+    """An enum member's value; anything else (None included) as-is."""
+    return getattr(member, "value", member)
+
+
 def _scanner_path(
     hass: HomeAssistant, info: bluetooth.BluetoothServiceInfoBleak
 ) -> dict[str, Any]:
@@ -173,6 +178,12 @@ def _scanner_path(
     return {
         "via": via,
         "scanner_type": getattr(scanner_type, "value", None),
+        # A passive scanner never relays scan responses, and some QN models
+        # carry their model identifier only there — so this is what tells
+        # "identifier never reaches HA" from "packet missed on a weak link"
+        # when the advertisement shows no manufacturer data.
+        "scanner_mode": _enum_value(getattr(scanner, "current_mode", None)),
+        "scanner_requested_mode": _enum_value(getattr(scanner, "requested_mode", None)),
         "scanner_name": _mask_macs(getattr(scanner, "name", None)),
         "scanner_source": _mask_macs(source),
         "connectable": getattr(info, "connectable", None),
@@ -190,9 +201,10 @@ def _advertisement_from_service_info(
 ) -> dict[str, Any] | None:
     """The library's ``advertisement`` block, rebuilt from HA's history.
 
-    For dumps taken when the library has not heard the scale itself (fresh
-    restart, scale asleep). Adds the model code and label, which the
-    library's own snapshot reports next to — not inside — this block.
+    Covers dumps taken when the library has not heard the scale itself
+    (fresh restart, scale asleep), and gives a second, independent view when
+    it has. Adds the model code and label, which the library's own snapshot
+    reports next to — not inside — this block.
     None if the installed library lacks the masking helper.
     """
     try:
@@ -318,8 +330,13 @@ async def async_get_config_entry_diagnostics(
     # of the library's scanner, so it still answers "is the scale reaching
     # HA at all, and through what" when no session ever started.
     service_info = _last_service_info(hass, coordinator.address)
+    # Always reported, even next to the library's own snapshot: the two come
+    # from different scanners (the library's is the integration's scanner —
+    # a native passive one or a proxy subscription — HA's is whichever of its
+    # scanners heard the scale last), so they can disagree, and a field
+    # missing from one but not the other says where it is being lost.
     ha_advertisement = None
-    if service_info is not None and not (scale_info or {}).get("advertisement"):
+    if service_info is not None:
         try:
             ha_advertisement = _advertisement_from_service_info(
                 service_info, coordinator._protocol
@@ -343,7 +360,9 @@ async def async_get_config_entry_diagnostics(
         "user_history": user_history,
         "pending_count": len(pending_redacted),
         "pending": pending_redacted,
-        "scale_connected": scale is not None,
+        # A client object exists — NOT a live BLE link: the library connects
+        # per weigh-in, and the trace says whether a session is open.
+        "scale_client_present": scale is not None,
         "scale_firmware_revision": (
             getattr(scale, "firmware_revision", None) if scale else None
         ),
@@ -354,7 +373,6 @@ async def async_get_config_entry_diagnostics(
         "scanner_path": (
             _scanner_path(hass, service_info) if service_info is not None else None
         ),
-        # Only when the library's snapshot has no advertisement of its own.
         "ha_advertisement": ha_advertisement,
     }
     return diag
