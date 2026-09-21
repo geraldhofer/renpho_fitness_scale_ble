@@ -35,10 +35,13 @@ from renpho_escs20m import (
     detect_protocol,
     is_qn_frame,
     is_x55aa_frame,
+    parse_qn_model_code,
 )
 from renpho_escs20m.detection import X55AA_COMPANY_IDS
+from renpho_escs20m.x55aa.protocol import parse_model_id as parse_x55aa_model_id
 
 from .const import (
+    CONF_ADVERTISED_MODEL_CODE,
     CONF_ATHLETE,
     CONF_BIRTHDATE,
     CONF_BODY_METRICS_ENABLED,
@@ -154,6 +157,28 @@ def _detect_protocol(info: BluetoothServiceInfo) -> str | None:
     """
     protocol = detect_protocol(info.name, info.manufacturer_data, info.address)
     return protocol.value if protocol is not None else None
+
+
+def advertised_model_code(
+    protocol: str | None, manufacturer_data: dict[int, bytes], address: str
+) -> int | None:
+    """The model identifier an advertisement carries, read as ``protocol``.
+
+    None when the protocol advertises no identifier (AABB), or the
+    advertisement holds no frame of that protocol's shape — the identifier
+    of some QN models only arrives in the scan response, which a passive
+    scanner never relays.
+    """
+    if protocol == PROTOCOL_QN:
+        payload = manufacturer_data.get(QN_MANUFACTURER_ID)
+        if payload is not None and is_qn_frame(payload, address):
+            return parse_qn_model_code(payload)
+    elif protocol == PROTOCOL_X55AA:
+        for company in X55AA_COMPANY_IDS:
+            payload = manufacturer_data.get(company)
+            if payload is not None and is_x55aa_frame(payload, address):
+                return parse_x55aa_model_id(payload)
+    return None
 
 
 def _manual_picker_tier(info: BluetoothServiceInfo) -> int | None:
@@ -457,10 +482,15 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         self._discovered_devices: dict[str, Discovery] = {}
+        # The advertisement the entry is being created from; kept on the
+        # flow (not in `context`, which must stay JSON-serializable) so the
+        # model identifier can be read once the protocol is settled.
+        self._discovery_info: BluetoothServiceInfo | None = None
 
     async def async_step_bluetooth(self, info: BluetoothServiceInfo) -> FlowResult:
         await self.async_set_unique_id(info.address)
         self._abort_if_unique_id_configured()
+        self._discovery_info = info
         protocol = _detect_protocol(info)
         if protocol is None:
             return self.async_abort(reason="not_supported")
@@ -504,9 +534,8 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
                 "name": self._discovered_devices[address].title
             }
             self.context[CONF_SCALE_DISPLAY_UNIT] = user_input[CONF_SCALE_DISPLAY_UNIT]
-            protocol = _detect_protocol(
-                self._discovered_devices[address].discovery_info
-            )
+            self._discovery_info = self._discovered_devices[address].discovery_info
+            protocol = _detect_protocol(self._discovery_info)
             self.context[CONF_PROTOCOL] = protocol
             if protocol is None:
                 # Unknown device (picker tier 2/3): configuring it is an
@@ -676,13 +705,23 @@ class ScaleConfigFlow(ConfigFlow, domain=DOMAIN):
         }
         if body_metrics_fields:
             user_profile.update(body_metrics_fields)
+        protocol = self.context.get(CONF_PROTOCOL) or PROTOCOL_QN
+        data = {
+            CONF_SCALE_DISPLAY_UNIT: self.context[CONF_SCALE_DISPLAY_UNIT],
+            CONF_PROTOCOL: protocol,
+            CONF_USER_PROFILES: [user_profile],
+        }
+        info = self._discovery_info
+        model_code = (
+            advertised_model_code(protocol, info.manufacturer_data, info.address)
+            if info is not None
+            else None
+        )
+        if model_code is not None:
+            data[CONF_ADVERTISED_MODEL_CODE] = f"0x{model_code:04x}"
         return self.async_create_entry(
             title=self.context["title_placeholders"]["name"],
-            data={
-                CONF_SCALE_DISPLAY_UNIT: self.context[CONF_SCALE_DISPLAY_UNIT],
-                CONF_PROTOCOL: self.context.get(CONF_PROTOCOL) or PROTOCOL_QN,
-                CONF_USER_PROFILES: [user_profile],
-            },
+            data=data,
         )
 
     @staticmethod

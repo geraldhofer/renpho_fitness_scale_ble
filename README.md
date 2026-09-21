@@ -335,13 +335,15 @@ enabling passive scanning above can help prevent it from recurring.
 Before opening a GitHub issue:
 
 1. **Check Settings → Repairs.** If a repair card explains the problem, the description tells you how to fix it without filing anything.
-2. **Download diagnostics.** Open **Settings → Devices & Services → Renpho Fitness Scale BLE → your scale's device card → Download Diagnostics**. This produces a redacted JSON dump of your config, coordinator state, and pending measurements. Attach it to your issue.
+2. **Download diagnostics.** Open **Settings → Devices & Services → Renpho Fitness Scale BLE → your scale's device card → Download Diagnostics**. This produces a redacted JSON dump of your config, coordinator state, and pending measurements. Attach it to your issue. Download it **right after reproducing the problem and before restarting Home Assistant** — see below.
 3. **Include version info:**
     - Home Assistant version (Settings → About)
     - Integration version (visible on the scale's device card under **Configuration**)
     - Scale firmware revision (also on the device card under `sw_version`)
     - **HVIN** from the regulatory sticker on the back of the scale, including the revision suffix (e.g. `ESCS20MA2`). The HVIN isn't readable over BLE so it can't be included automatically in the diagnostics dump — please type it in by hand.
 4. **If it's a BLE / connection issue,** also enable verbose library logging in the integration's advanced settings, reproduce the problem, and include the relevant log lines.
+
+**What the diagnostics download contains.** Besides your settings, the dump describes the scale itself: the model code it advertises and what that code is known as, the protocol flavor, its last advertisement, whether Home Assistant hears it through a Bluetooth proxy or a local adapter (and how strongly), the integration and library versions, and a trace of the most recent frames exchanged with the scale — typically the last weigh-in or two. The trace is kept in memory only, so a restart of Home Assistant (or a reload of the integration) empties it. Be aware of what is and isn't in there before posting it publicly: **the frames include your measurements** (weight, impedance, body fat), as do the per-user summaries. The scale's MAC address is partially masked everywhere (the manufacturer half stays, the device-specific half is replaced), as are the addresses of Bluetooth proxies and adapters; the profile bytes sent to the scale (sex, age / birth date, height) are masked inside the trace; and user names, person entities, notify services, birth dates, heights and sexes are redacted from the settings, with users appearing only as `user_1`, `user_2`, ….
 
 Issues go to the [GitHub issue tracker](https://github.com/ronnnnnnnnnnnnn/renpho_fitness_scale_ble/issues).
 

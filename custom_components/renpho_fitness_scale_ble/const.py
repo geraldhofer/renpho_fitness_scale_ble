@@ -21,6 +21,11 @@ CONF_USER_PROFILES = "user_profiles"
 CONF_ROUTER_STATE = "router_state"
 CONF_PENDING_STATE = "pending_state"
 CONF_PROTOCOL = "protocol"
+# Model identifier the scale advertised when the entry was created, as the
+# library spells it ("0x099b"). Optional and informational only — it lets a
+# diagnostics dump name the model even when the scale is asleep; nothing
+# reads it to make a decision, and entries created before it simply lack it.
+CONF_ADVERTISED_MODEL_CODE = "advertised_model_code"
 
 # --- Scale BLE protocols (renpho-escs20m) ---
 # QN-series: connectable GATT scale with body composition (the default and

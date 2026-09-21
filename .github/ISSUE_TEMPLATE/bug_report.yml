@@ -13,7 +13,7 @@ body:
         - Check **Settings → Repairs** in Home Assistant — a repair card may already explain what's wrong.
         - Skim the [Troubleshooting section of the README](https://github.com/ronnnnnnnnnnnnn/renpho_fitness_scale_ble#troubleshooting).
         - If the scale doesn't connect, returns no data, or the values are clearly wrong, this is might be a protocol-level compatibility issue — see [Diagnosing Protocol Compatibility](https://github.com/ronnnnnnnnnnnnn/renpho_fitness_scale_ble#diagnosing-protocol-compatibility) first.
-        - Download diagnostics from your scale's device card (**Settings → Devices & Services → Renpho Fitness Scale BLE → your scale → Download Diagnostics**) and attach the JSON file at the bottom of this form.
+        - Download diagnostics from your scale's device card (**Settings → Devices & Services → Renpho Fitness Scale BLE → your scale → Download Diagnostics**) and attach the JSON file at the bottom of this form. The dump includes a trace of the most recent weigh-in(s), kept in memory only — so download it **right after reproducing the problem, before restarting Home Assistant**. It contains your measurements (weight, impedance, body fat); MAC addresses are partially masked and names and profile details are redacted.
 
   - type: input
     id: marketed_model
@@ -106,6 +106,6 @@ body:
     id: diagnostics
     attributes:
       label: Diagnostics dump
-      description: Drag the downloaded `.json` file into this field to attach it.
+      description: Drag the downloaded `.json` file into this field to attach it. Download it right after reproducing the problem and before restarting Home Assistant — the trace of recent weigh-ins it carries lives in memory.
     validations:
       required: false
