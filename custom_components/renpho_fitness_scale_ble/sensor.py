@@ -151,7 +151,15 @@ class ScaleUserSensor(RestoreSensor):
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        if last_state := await self.async_get_last_sensor_data():
+        # Restore only while the weight history still backs a value. HA's
+        # restore cache is keyed by entity_id and outlives the entity, and user
+        # IDs are name slugs: a user removed and re-added under the same name
+        # (or a reinstalled integration) would otherwise come back showing a
+        # weight that no service can remove. History pruning always keeps the
+        # newest measurement, so empty history means no measurement at all.
+        if self._coordinator.get_recent_user_history(self._user_id, limit=1) and (
+            last_state := await self.async_get_last_sensor_data()
+        ):
             self._attr_native_value = self._restored_native_value(last_state)
             self._attr_available = True
         self.async_on_remove(
