@@ -42,7 +42,7 @@ from habluetooth import get_manager as habluetooth_get_manager
 from homeassistant.components import persistent_notification
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, UnitOfMass
 from homeassistant.core import CoreState, HomeAssistant, callback
-from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
+from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceEntry
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import MassConverter
@@ -1114,8 +1114,30 @@ class ScaleDataUpdateCoordinator:
         return history[-limit:] if limit else history
 
     def set_config_entry_id(self, entry_id: str) -> None:
-        """Cache the config entry id for `_update_config_entry` calls later."""
+        """Cache the config entry id for `_update_config_entry` and the
+        per-entry device lookup in `async_get_device_entry`."""
         self._config_entry_id = entry_id
+
+    @callback
+    def async_get_device_entry(self) -> DeviceEntry | None:
+        """Return this entry's scale device from the device registry.
+
+        HA 2026.8 made device connections unique per config entry only and
+        deprecated ``DeviceRegistry.async_get_device`` (breaks in 2027.8.0),
+        so the per-entry lookup is used when the core has it. Older cores
+        (hacs.json allows 2026.1) only have the global lookup. On a new core
+        without a cached entry id this returns ``None`` rather than falling
+        through to the deprecated call.
+        """
+        registry = _get_device_registry(self.hass)
+        connection = (CONNECTION_BLUETOOTH, self.address)
+        if not hasattr(registry, "async_get_device_by_connection"):
+            return registry.async_get_device(connections={connection})
+        if not self._config_entry_id:
+            return None
+        return registry.async_get_device_by_connection(
+            connection, self._config_entry_id
+        )
 
     def check_bluetooth_available(self) -> None:
         """Raise `BluetoothNotAvailableError` if no usable BT scanner exists.
@@ -2866,13 +2888,12 @@ class ScaleDataUpdateCoordinator:
         firmware = getattr(scale, "firmware_revision", None)
         if not firmware:
             return
-        registry = _get_device_registry(self.hass)
-        device = registry.async_get_device(
-            connections={(CONNECTION_BLUETOOTH, self.address)}
-        )
+        device = self.async_get_device_entry()
         if device is None or device.sw_version == firmware:
             return
-        registry.async_update_device(device.id, sw_version=firmware)
+        _get_device_registry(self.hass).async_update_device(
+            device.id, sw_version=firmware
+        )
 
     # ------------------------------------------------------------------
     # Ambiguous-measurement notifications
@@ -3189,10 +3210,7 @@ class ScaleDataUpdateCoordinator:
         weight_kg = pending["weight_kg"]
         candidates = list(pending.get("candidates", []))
 
-        device_reg = _get_device_registry(self.hass)
-        device_entry = device_reg.async_get_device(
-            connections={(CONNECTION_BLUETOOTH, self.address)}
-        )
+        device_entry = self.async_get_device_entry()
         device_id = device_entry.id if device_entry else "DEVICE_ID"
         device_name = device_entry.name if device_entry else self.device_name
 
